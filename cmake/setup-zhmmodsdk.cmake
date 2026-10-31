@@ -4,10 +4,19 @@ if (DEFINED ZHMMODSDK_DIR)
 else()
     include(FetchContent)
     cmake_policy(SET CMP0135 NEW)
-    FetchContent_Declare(
-        ZHMModSDK
-        URL https://github.com/OrfeasZ/ZHMModSDK/releases/download/${ZHMMODSDK_VER}/DevPkg-ZHMModSDK.zip
-    )
+
+    if (DEFINED ZHMMODSDK_ARTIFACT_ID AND DEFINED ENV{GITHUB_TOKEN})
+        FetchContent_Declare(
+            ZHMModSDK
+            URL https://api.github.com/repos/OrfeasZ/ZHMModSDK/actions/artifacts/${ZHMMODSDK_ARTIFACT_ID}/zip
+            HTTP_HEADER "Authorization: token $ENV{GITHUB_TOKEN}"
+        )
+    else()
+        FetchContent_Declare(
+            ZHMModSDK
+            URL https://github.com/OrfeasZ/ZHMModSDK/releases/download/${ZHMMODSDK_VER}/DevPkg-ZHMModSDK.zip
+        )
+    endif()
 
     FetchContent_MakeAvailable(ZHMModSDK)
     set(ZHMMODSDK_DIR "${zhmmodsdk_SOURCE_DIR}")

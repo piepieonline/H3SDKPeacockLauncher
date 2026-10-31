@@ -1,7 +1,9 @@
 {
-    "name": "mymod",
+    "name": "peacocklauncher",
     "version": "1.0.0",
     "dependencies": [
-        "directx-headers"
+        "directx-headers",
+        "miniz",
+        "nlohmann-json"
     ]
 }
