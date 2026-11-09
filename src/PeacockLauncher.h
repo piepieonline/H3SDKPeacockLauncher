@@ -12,6 +12,7 @@
 
 #include <IPluginInterface.h>
 
+#include "PeacockLogViewer.h"
 #include "PeacockUpdater.h"
 
 enum class EPeacockUpdateMode {
@@ -42,6 +43,7 @@ private:
     bool HasLaunchedPeacock();
     void StopPeacock();
     void ConnectToPeacock();
+    void ResetToOfficialDomain();
 
     void RunInBackground(std::function<void()> p_Task);
     void CheckForUpdate();
@@ -70,6 +72,7 @@ private:
     bool m_IsWine = false;
     bool m_HasWaitedForPeacock = false;
     std::atomic<bool> m_IsLaunchPending = false;
+    std::atomic<bool> m_IsUsingPeacockDomain = false;
 
     std::recursive_mutex m_ProcessMutex;
     HANDLE m_PeacockProcess = nullptr;
@@ -90,6 +93,8 @@ private:
     bool m_ShowUpdatePopup = false;
 
     bool m_ShowSettings = false;
+    bool m_ShowLogs = false;
+    PeacockLogViewer m_LogViewer;
 };
 
 DEFINE_ZHM_PLUGIN(PeacockLauncher)

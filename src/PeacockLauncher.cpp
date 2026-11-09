@@ -126,10 +126,12 @@ void PeacockLauncher::Init() {
 
     LoadSettings();
 
+    Hooks::ZOnlineVersionConfig_GetConfigHost->AddDetour(this, &PeacockLauncher::GetConfigHost);
+    Hooks::Check_SSL_Cert->AddDetour(this, &PeacockLauncher::Check_SSL_Cert);
+
     if (m_AutoConnect) {
         PatchAuthHeaderChecks();
-        Hooks::ZOnlineVersionConfig_GetConfigHost->AddDetour(this, &PeacockLauncher::GetConfigHost);
-        Hooks::Check_SSL_Cert->AddDetour(this, &PeacockLauncher::Check_SSL_Cert);
+        m_IsUsingPeacockDomain = true;
     }
 
     // Launched here rather than OnEngineInitialized so Peacock has a head start before the game first connects
@@ -479,11 +481,23 @@ void PeacockLauncher::StopPeacock() {
 void PeacockLauncher::ConnectToPeacock() {
     const std::string s_Domain = std::format("localhost:{}", m_Port);
 
+    PatchAuthHeaderChecks();
+    m_IsUsingPeacockDomain = true;
+
     Functions::ZConfigCommand_ExecuteCommand->Call("OnlineResources_Disable", "0");
     Functions::ZConfigCommand_ExecuteCommand->Call("OnlineResources_ForceOfflineOnFailure", "0");
     Functions::ZConfigCommand_ExecuteCommand->Call("online_VersionConfigDomain", s_Domain.c_str());
 
     Logger::Info("[PeacockLauncher] Set online domain to '{}'.", s_Domain);
+}
+
+void PeacockLauncher::ResetToOfficialDomain() {
+    m_IsUsingPeacockDomain = false;
+    RestoreAuthHeaderChecks();
+
+    Functions::ZConfigCommand_ExecuteCommand->Call("online_VersionConfigDomain", "config.hitman.io");
+
+    Logger::Info("[PeacockLauncher] Reset online domain to 'config.hitman.io'.");
 }
 
 #pragma endregion
@@ -585,25 +599,30 @@ void PeacockLauncher::PatchAuthHeaderChecks() {
     uint8_t nop_2[2] = {0x90, 0x90};
     uint8_t nop_6[6] = {0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
 
-    if (m_OldAuthPatch1Code == nullptr) m_OldAuthPatch1Code = malloc(2);
-    if (m_OldAuthPatch2Code == nullptr) m_OldAuthPatch2Code = malloc(6);
+    if (m_OldAuthPatch1Code == nullptr) {
+        m_OldAuthPatch1Code = malloc(2);
 
-    if (!SDK()->PatchCodeStoreOriginal(
-        "\x75\x00\x48\x83\xF9\x00\x75\x00\xEB\x00\x49\x8B\xCF", "x?xxx?x?x?xxx", nop_2, sizeof(nop_2), 0,
-        m_OldAuthPatch1Code
-    )) {
-        Logger::Error("[PeacockLauncher] Failed to patch protocol check in ZOnlineManager::HttpRequest!");
-        free(m_OldAuthPatch1Code);
-        m_OldAuthPatch1Code = nullptr;
+        if (!SDK()->PatchCodeStoreOriginal(
+            "\x75\x00\x48\x83\xF9\x00\x75\x00\xEB\x00\x49\x8B\xCF", "x?xxx?x?x?xxx", nop_2, sizeof(nop_2), 0,
+            m_OldAuthPatch1Code
+        )) {
+            Logger::Error("[PeacockLauncher] Failed to patch protocol check in ZOnlineManager::HttpRequest!");
+            free(m_OldAuthPatch1Code);
+            m_OldAuthPatch1Code = nullptr;
+        }
     }
 
-    if (!SDK()->PatchCodeStoreOriginal(
-        "\x0F\x84\x00\x00\x00\x00\x45\x84\xED\x0F\x85\x00\x00\x00\x00\x48\x8D\x55", "xx????xxxxx????xxx", nop_6,
-        sizeof(nop_6), 0, m_OldAuthPatch2Code
-    )) {
-        Logger::Error("[PeacockLauncher] Failed to patch trusted domain check in ZOnlineManager::HttpRequest!");
-        free(m_OldAuthPatch2Code);
-        m_OldAuthPatch2Code = nullptr;
+    if (m_OldAuthPatch2Code == nullptr) {
+        m_OldAuthPatch2Code = malloc(6);
+
+        if (!SDK()->PatchCodeStoreOriginal(
+            "\x0F\x84\x00\x00\x00\x00\x45\x84\xED\x0F\x85\x00\x00\x00\x00\x48\x8D\x55", "xx????xxxxx????xxx", nop_6,
+            sizeof(nop_6), 0, m_OldAuthPatch2Code
+        )) {
+            Logger::Error("[PeacockLauncher] Failed to patch trusted domain check in ZOnlineManager::HttpRequest!");
+            free(m_OldAuthPatch2Code);
+            m_OldAuthPatch2Code = nullptr;
+        }
     }
 }
 
@@ -635,7 +654,7 @@ void PeacockLauncher::RestoreAuthHeaderChecks() {
 #pragma region Hooks
 
 DEFINE_PLUGIN_DETOUR(PeacockLauncher, ZString*, GetConfigHost, ZOnlineVersionConfig* th, ZString* out) {
-    if (!m_AutoConnect) {
+    if (!m_IsUsingPeacockDomain) {
         return {HookAction::Continue()};
     }
 
@@ -652,7 +671,7 @@ DEFINE_PLUGIN_DETOUR(PeacockLauncher, ZString*, GetConfigHost, ZOnlineVersionCon
 }
 
 DEFINE_PLUGIN_DETOUR(PeacockLauncher, bool, Check_SSL_Cert, void* unk1, void* unk2) {
-    if (!m_AutoConnect) {
+    if (!m_IsUsingPeacockDomain) {
         return {HookAction::Continue()};
     }
 
@@ -772,10 +791,20 @@ void PeacockLauncher::DrawSettingsWindow() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Point the game at localhost:%d. You may need to go back to the title screen to reconnect.", (int)m_Port);
 
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_MD_RESTART_ALT " Reset to official"))
+            ResetToOfficialDomain();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Point the game back at config.hitman.io. You may need to go back to the title screen to reconnect.");
+
         if (ImGui::Button(ICON_MD_SYSTEM_UPDATE " Check for updates"))
             RunInBackground([this] { CheckForUpdate(); });
 
         ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_MD_TERMINAL " Logs"))
+            m_ShowLogs = !m_ShowLogs;
 
         std::string s_InstalledVersion;
         bool s_HasUpdate = false;
@@ -855,6 +884,7 @@ void PeacockLauncher::DrawUpdatePopup() {
 void PeacockLauncher::OnDrawUI(bool p_HasFocus) {
     DrawUpdatePopup();
     if (p_HasFocus && m_ShowSettings) DrawSettingsWindow();
+    if (p_HasFocus && m_ShowLogs) m_LogViewer.Draw(&m_ShowLogs, [this] { return GetPeacockDir(); });
 }
 
 #pragma endregion

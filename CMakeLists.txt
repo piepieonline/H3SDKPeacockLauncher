@@ -28,6 +28,8 @@ add_library(PeacockLauncher SHARED
     ${CMAKE_CURRENT_BINARY_DIR}/version.rc
     src/PeacockLauncher.cpp
     src/PeacockLauncher.h
+    src/PeacockLogViewer.cpp
+    src/PeacockLogViewer.h
     src/PeacockUpdater.cpp
     src/PeacockUpdater.h
 )
